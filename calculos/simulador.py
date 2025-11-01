@@ -1,96 +1,152 @@
-import numpy as np
-from utils import parametros as p
+# -*- coding: utf-8 -*-
+"""
+Este script contiene el motor de la simulación.
+Implementa el algoritmo de Euler-Maruyama para resolver la ecuación de
+Langevin sobreamortiguada y calcular la trayectoria de la partícula.
 
-def run_simulation(total_steps, dt, k_x, k_y, gamma, k_B, T):
+** Versión 2: Admite modo armónico (F = -kx) y
+** modo anharmónico (usando mapa de fuerzas interpolado).
+"""
+
+import numpy as np
+import sys
+import os
+
+# --- INICIO DE SOLUCIÓN DE RUTA ---
+# Añadir el directorio raíz del proyecto al sys.path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
+# --- FIN DE SOLUCIÓN DE RUTA ---
+
+from utils import parametros as p
+# Importamos el lector que creamos (solo para el bloque de prueba)
+from utils import lector_datos
+
+def run_simulation(total_steps, dt, gamma, k_B, T, 
+                   k_x=None, k_y=None, 
+                   fx_interp=None, fy_interp=None):
     """
     Ejecuta una simulación de movimiento Browniano en una trampa óptica 2D.
 
+    Puede operar en dos modos:
+    1. Armónico: Proporcionando k_x y k_y.
+    2. Anharmónico: Proporcionando fx_interp y fy_interp.
+
     Args:
-        total_steps (int): Número total de pasos en la simulación.
+        total_steps (int): Número total de pasos.
         dt (float): Paso de tiempo (s).
-        k_x (float): Rigidez de la trampa en la dirección X (N/m).
-        k_y (float): Rigidez de la trampa en la dirección Y (N/m).
-        gamma (float): Coeficiente de arrastre de Stokes (N·s/m).
+        gamma (float): Coef. de arrastre (N·s/m).
         k_B (float): Constante de Boltzmann (J/K).
-        T (float): Temperatura absoluta (K).
+        T (float): Temperatura (K).
+        k_x (float, opcional): Rigidez armónica en X (N/m).
+        k_y (float, opcional): Rigidez armónica en Y (N/m).
+        fx_interp (func, opcional): Interpolador para la fuerza en X.
+        fy_interp (func, opcional): Interpolador para la fuerza en Y.
 
     Returns:
-        np.ndarray: Un array de forma (total_steps, 2) con las posiciones [x, y]
-                    de la partícula en cada paso de tiempo.
+        np.ndarray: Array (total_steps, 2) con posiciones [x, y] en metros.
     """
     # 1. Inicialización
-    # Creamos un array vacío para almacenar la trayectoria.
-    # La forma es (número de pasos, 2) para las coordenadas [x, y].
     trajectory = np.zeros((total_steps, 2))
     
     # 2. Cálculo del término de la fuerza estocástica (ruido)
-    # Según la teoría, la amplitud de la fuerza Browniana depende de la
-    # temperatura y el arrastre. Pre-calculamos este factor para eficiencia.
-    # D es el coeficiente de difusión: D = k_B * T / gamma
-    # La desviación estándar del desplazamiento por ruido es sqrt(2 * D * dt)
     diffusion_coeff = k_B * T / gamma
     noise_magnitude = np.sqrt(2 * diffusion_coeff * dt)
 
     # 3. Bucle de Simulación (Método de Euler-Maruyama)
     for i in range(1, total_steps):
-        # Posición en el paso anterior
+        # Posición en el paso anterior (en metros)
         x_prev, y_prev = trajectory[i-1]
 
-        # a) Cálculo de la fuerza determinística (de la trampa óptica)
-        # F = -κ * r  (Ley de Hooke)
-        force_x = -k_x * x_prev
-        force_y = -k_y * y_prev
+        # =================================================================
+        # INICIO DE LA LÓGICA DE FUERZA ACTUALIZADA
+        # =================================================================
+        
+        # --- MODO 2: ANHARMÓNICO (Mapa de fuerzas de MATLAB) ---
+        if fx_interp is not None and fy_interp is not None:
+            # El mapa de fuerzas (fuerzas_particula_mie.csv) usa nm.
+            # Debemos convertir nuestra posición de simulación (metros)
+            # a nanómetros antes de consultar al interpolador.
+            x_prev_nm = x_prev * 1e9
+            y_prev_nm = y_prev * 1e9
+            
+            # Consultamos la fuerza en el mapa interpolado
+            force_x = fx_interp(x_prev_nm, y_prev_nm)
+            force_y = fy_interp(y_prev_nm, y_prev_nm)
+            
+        # --- MODO 1: ARMÓNICO (Modelo de Resorte Simple) ---
+        elif k_x is not None and k_y is not None:
+            # F = -κ * r  (Ley de Hooke)
+            force_x = -k_x * x_prev
+            force_y = -k_y * y_prev
+            
+        # --- Error ---
+        else:
+            raise ValueError("Error en run_simulation: Debes proveer "
+                             "(k_x, k_y) o (fx_interp, fy_interp).")
+        
+        # =================================================================
+        # FIN DE LA LÓGICA DE FUERZA
+        # =================================================================
 
         # b) Generación de la fuerza estocástica (Browniana)
-        # Generamos dos números aleatorios de una distribución normal (media 0, desviación 1)
         random_force_x = noise_magnitude * np.random.randn()
         random_force_y = noise_magnitude * np.random.randn()
 
-        # c) Actualización de la posición (Ecuación de Langevin sobreamortiguada)
-        # dx = (F_trampa / gamma) * dt + dW
-        # donde dW es el término de ruido que ya calculamos.
+        # c) Actualización de la posición (Ecuación de Langevin)
         trajectory[i, 0] = x_prev + (force_x / gamma) * dt + random_force_x
         trajectory[i, 1] = y_prev + (force_y / gamma) * dt + random_force_y
         
     return trajectory
 
 # =============================================================================
-# BLOQUE DE PRUEBA
+# BLOQUE DE PRUEBA ACTUALIZADO
 # =============================================================================
-# Este bloque solo se ejecuta cuando corres este script directamente.
-# Es muy útil para probar que nuestra función `run_simulation` funciona
-# correctamente antes de integrarla con la interfaz gráfica.
 if __name__ == '__main__':
-    print("Ejecutando prueba del simulador...")
     
-    # Ejecutamos la simulación con los parámetros importados
-    trayectoria_calculada = run_simulation(
-        total_steps=p.total_steps,
+    print("="*50)
+    print("EJECUTANDO PRUEBA DEL SIMULADOR (MODO ARMÓNICO)")
+    print("="*50)
+    
+    # Prueba 1: Modo Armónico (como antes)
+    trayectoria_armonica = run_simulation(
+        total_steps=10000,  # Prueba corta
         dt=p.dt,
-        k_x=p.kappa_x,
-        k_y=p.kappa_y,
         gamma=p.gamma,
         k_B=p.k_B,
-        T=p.T
+        T=p.T,
+        k_x=p.kappa_x,  # Proporcionamos kappas
+        k_y=p.kappa_y
     )
+    print("Simulación armónica completada.")
+    print(f"Posición final: {trayectoria_armonica[-1] * 1e9} nm\n")
 
-    print(f"Simulación completada. Se generaron {len(trayectoria_calculada)} puntos.")
-    print("Forma del array de la trayectoria:", trayectoria_calculada.shape)
     
-    # Imprimimos los primeros 5 puntos para verificar
-    print("Primeros 5 puntos de la trayectoria [x, y]:")
-    print(trayectoria_calculada[:5])
-
-    # Opcional: Visualización rápida con matplotlib
-    # Si tienes matplotlib instalado, puedes descomentar las siguientes líneas
-    # para ver una gráfica de la trayectoria generada.
+    print("="*50)
+    print("EJECUTANDO PRUEBA DEL SIMULADOR (MODO ANHARMÓNICO)")
+    print("="*50)
     
-    import matplotlib.pyplot as plt
-    plt.figure(figsize=(8, 8))
-    plt.plot(trayectoria_calculada[:, 0] * 1e9, trayectoria_calculada[:, 1] * 1e9)
-    plt.title("Trayectoria Simulada (Primeros puntos)")
-    plt.xlabel("Posición X (nm)")
-    plt.ylabel("Posición Y (nm)")
-    plt.grid(True)
-    plt.axis('equal')
-    plt.show()
+    # Prueba 2: Modo Anharmónico
+    
+    # 2.1. Cargar el mapa de fuerzas
+    # Asumimos que el archivo .csv está en la raíz del proyecto
+    ruta_mapa = os.path.join(parent_dir, 'fuerzas_particula_mie.csv')
+    fx_i, fy_i = lector_datos.cargar_mapa_fuerzas(ruta_mapa)
+    
+    if fx_i:
+        # 2.2. Ejecutar simulación pasando los interpoladores
+        trayectoria_anharmonica = run_simulation(
+            total_steps=10000, # Prueba corta
+            dt=p.dt,
+            gamma=p.gamma,
+            k_B=p.k_B,
+            T=p.T,
+            fx_interp=fx_i,  # Proporcionamos interpoladores
+            fy_interp=fy_i
+        )
+        print("Simulación anharmónica completada.")
+        print(f"Posición final: {trayectoria_anharmonica[-1] * 1e9} nm\n")
+    else:
+        print("PRUEBA ANHARMÓNICA OMITIDA: No se encontró 'fuerzas_particula_mie.csv' en la raíz.")
+        print("Asegúrate de tener el archivo para probar este modo.")
