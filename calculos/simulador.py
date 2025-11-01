@@ -65,15 +65,17 @@ def run_simulation(total_steps, dt, gamma, k_B, T,
         
         # --- MODO 2: ANHARMÓNICO (Mapa de fuerzas de MATLAB) ---
         if fx_interp is not None and fy_interp is not None:
-            # El mapa de fuerzas (fuerzas_particula_mie.csv) usa nm.
-            # Debemos convertir nuestra posición de simulación (metros)
-            # a nanómetros antes de consultar al interpolador.
+            # Convertir posición (m) a (nm)
             x_prev_nm = x_prev * 1e9
             y_prev_nm = y_prev * 1e9
             
-            # Consultamos la fuerza en el mapa interpolado
-            force_x = fx_interp(x_prev_nm, y_prev_nm)
-            force_y = fy_interp(y_prev_nm, y_prev_nm)
+            # --- CORRECCIÓN CRÍTICA ---
+            # El interpolador espera un único punto [x, y]
+            punto_nm = [x_prev_nm, y_prev_nm]
+            
+            # La llamada correcta es fx_interp(punto), no fx_interp(x, y)
+            force_x = fx_interp(punto_nm)
+            force_y = fy_interp(punto_nm)
             
         # --- MODO 1: ARMÓNICO (Modelo de Resorte Simple) ---
         elif k_x is not None and k_y is not None:
