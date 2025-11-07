@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-** Versión 4: Lógica de gráficos refactorizada a 'graficador.py'
-** y con checkboxes separados para modo y visualización.
+** Versión 5: Soporte completo para visualización de Intensidad y Fuerza.
 """
 
 import tkinter as tk
@@ -10,7 +9,7 @@ import numpy as np
 import sys
 import os
 
-# ... (integración de matplotlib) ...
+# ... (imports de matplotlib sin cambios) ...
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import (
     FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -26,82 +25,99 @@ sys.path.append(parent_dir)
 from calculos import simulador
 from utils import parametros as p
 from utils import lector_datos
-from visualizacion import graficador # <--- NUEVA IMPORTACIÓN
+from visualizacion import graficador
 
 class App(tk.Tk):
     
     def __init__(self):
         super().__init__()
-        
-        self.title("Simulador de Pinzas Ópticas")
-        self.geometry("800x700")
+        self.title("Simulador de Pinzas Ópticas - Avanzado")
+        self.geometry("900x750") # Un poco más grande
 
-        # --- Variables de estado de simulación ---
+        # --- Estado de Simulación ---
         self.trajectory_data = None
         self.animation = None
         self.is_running = False
         self.animation_step_size = 50
         
-        # --- Variables de estado de MODO ---
+        # --- Estado de Datos ---
         self.anharmonic_mode = tk.BooleanVar(value=False)
         self.fx_interp = None
         self.fy_interp = None
+        self.int_interp = None # <--- Nuevo: Interpolador de intensidad
         
-        # --- NUEVA Variable de VISUALIZACIÓN ---
-        self.show_force_map = tk.BooleanVar(value=True) # <-- Nuevo checkbox
+        # --- Estado de Visualización ---
+        # Usaremos un string para el modo de visualización de fondo
+        self.viz_mode = tk.StringVar(value="force") 
 
         # =====================================================================
-        # 1. Crear los frames
+        # FRAMES
         # =====================================================================
-        control_frame = ttk.Frame(self)
+        control_frame = ttk.LabelFrame(self, text="Control de Simulación")
         control_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=5)
         
-        mode_frame = ttk.Frame(self)
-        mode_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=5)
+        settings_frame = ttk.LabelFrame(self, text="Configuración del Modelo y Visualización")
+        settings_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=5)
         
         plot_frame = ttk.Frame(self)
-        plot_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        plot_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=(0,10))
 
         # =====================================================================
-        # 2. Widgets del 'control_frame' (Botones)
+        # WIDGETS - CONTROL
         # =====================================================================
         self.btn_start = ttk.Button(control_frame, text="Iniciar", command=self.start_simulation)
-        self.btn_start.pack(side=tk.LEFT, padx=5)
+        self.btn_start.pack(side=tk.LEFT, padx=5, pady=5)
         self.btn_pause = ttk.Button(control_frame, text="Pausar", command=self.pause_simulation, state=tk.DISABLED)
-        self.btn_pause.pack(side=tk.LEFT, padx=5)
+        self.btn_pause.pack(side=tk.LEFT, padx=5, pady=5)
         self.btn_reset = ttk.Button(control_frame, text="Reiniciar Simulación", command=self.reset_simulation)
-        self.btn_reset.pack(side=tk.LEFT, padx=5)
+        self.btn_reset.pack(side=tk.LEFT, padx=5, pady=5)
 
         # =====================================================================
-        # 3. Widgets del 'mode_frame' (Controles)
+        # WIDGETS - CONFIGURACIÓN
         # =====================================================================
         
-        # Checkbox para MODO (Armónico / Anharmónico)
+        # -- Columna Izquierda: Modelo Físico --
+        model_panel = ttk.Frame(settings_frame)
+        model_panel.pack(side=tk.LEFT, padx=10, pady=5)
+        
+        ttk.Label(model_panel, text="Modelo de Fuerza:").pack(anchor=tk.W)
         self.check_anharmonic = ttk.Checkbutton(
-            mode_frame,
-            text="Modo Anharmónico",
-            variable=self.anharmonic_mode,
-            command=self.on_mode_change
+            model_panel, text="Usar Mapa Anharmónico (Mie)", 
+            variable=self.anharmonic_mode, command=self.on_param_change
         )
-        self.check_anharmonic.pack(side=tk.LEFT, padx=5)
+        self.check_anharmonic.pack(anchor=tk.W)
+        
+        load_frame = ttk.Frame(model_panel)
+        load_frame.pack(anchor=tk.W, pady=(5,0))
+        self.btn_load = ttk.Button(load_frame, text="Cargar CSV...", command=self.load_force_map)
+        self.btn_load.pack(side=tk.LEFT)
+        self.lbl_file = ttk.Label(load_frame, text="(Ninguno)", font=("Arial", 8))
+        self.lbl_file.pack(side=tk.LEFT, padx=5)
 
-        self.btn_load_map = ttk.Button(mode_frame, text="Cargar Mapa...", command=self.load_force_map)
-        self.btn_load_map.pack(side=tk.LEFT, padx=5)
+        # -- Separador --
+        ttk.Separator(settings_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=20, pady=5)
+
+        # -- Columna Derecha: Visualización --
+        viz_panel = ttk.Frame(settings_frame)
+        viz_panel.pack(side=tk.LEFT, padx=10, pady=5)
         
-        self.lbl_map_status = ttk.Label(mode_frame, text="Archivo: Ninguno")
-        self.lbl_map_status.pack(side=tk.LEFT, padx=10)
+        ttk.Label(viz_panel, text="Fondo del Gráfico:").pack(anchor=tk.W)
         
-        # --- NUEVO CHECKBOX DE VISUALIZACIÓN ---
-        self.check_show_map = ttk.Checkbutton(
-            mode_frame,
-            text="Mostrar Haz (Fondo)",
-            variable=self.show_force_map,
-            command=self.reset_plot # Redibuja el fondo al cambiar
+        # Combobox para elegir qué ver en el fondo
+        self.combo_viz = ttk.Combobox(
+            viz_panel, 
+            textvariable=self.viz_mode,
+            state="readonly",
+            values=["force", "intensity", "none"]
         )
-        self.check_show_map.pack(side=tk.RIGHT, padx=10)
+        # Mapeo de nombres amigables para el usuario
+        self.combo_viz['values'] = ("Fuerza (Magnitud)", "Intensidad del Haz", "Ninguno")
+        self.combo_viz.current(0) # Seleccionar el primero por defecto
+        self.combo_viz.bind("<<ComboboxSelected>>", self.on_viz_change)
+        self.combo_viz.pack(anchor=tk.W)
 
         # =====================================================================
-        # 4. Configuración del lienzo de Matplotlib
+        # MATPLOTLIB
         # =====================================================================
         self.fig = Figure(figsize=(7, 5), dpi=100)
         self.ax = self.fig.add_subplot(111)
@@ -111,40 +127,113 @@ class App(tk.Tk):
         toolbar.update()
         
         self.reset_plot()
-        self.update_button_states()
+        self.update_gui_state()
 
-    # --- Callbacks de Botones y Controles ---
+    # --- MANEJO DE EVENTOS ---
+
+    def on_param_change(self):
+        """Se llama cuando cambia un parámetro que requiere redibujar el fondo."""
+        self.reset_plot()
+        self.update_gui_state()
+        
+    def on_viz_change(self, event=None):
+        """Se llama cuando el usuario cambia la selección del Combobox."""
+        self.reset_plot()
+
+    def get_viz_mode_internal(self):
+        """Traduce la selección del Combobox a nuestros códigos internos."""
+        selection = self.combo_viz.get()
+        if selection == "Fuerza (Magnitud)": return 'force'
+        if selection == "Intensidad del Haz": return 'intensity'
+        return 'none'
+
+    def load_force_map(self):
+        filepath = filedialog.askopenfilename(filetypes=[("Archivos CSV", "*.csv")])
+        if not filepath: return
+        try:
+            # Desempaquetamos los 3 interpoladores
+            self.fx_interp, self.fy_interp, self.int_interp = lector_datos.cargar_mapa_fuerzas(filepath)
+            
+            if self.fx_interp:
+                self.lbl_file.config(text=os.path.basename(filepath), foreground="green")
+                messagebox.showinfo("Éxito", "Archivo cargado correctamente.")
+                self.anharmonic_mode.set(True) # Activar modo anharmónico automáticamente
+                
+                # Si hay datos de intensidad, cambiar automáticamente a ver intensidad
+                if self.int_interp:
+                    self.combo_viz.current(1) # Seleccionar "Intensidad del Haz"
+                
+                self.reset_plot()
+            else:
+                raise Exception("Error al leer datos del archivo.")
+        except Exception as e:
+            self.lbl_file.config(text="Error", foreground="red")
+            messagebox.showerror("Error", str(e))
+            self.anharmonic_mode.set(False)
+        self.update_gui_state()
+
+    # --- SIMULACIÓN Y GRÁFICOS ---
+
+    def reset_plot(self):
+        """Redibuja completamente el gráfico y su fondo."""
+        if self.animation: self.animation.event_source.stop(); self.animation = None
+        self.is_running = False; self.trajectory_data = None
+        self.ax.clear()
+        
+        # --- DIBUJAR FONDO USANDO EL NUEVO MÓDULO ---
+        graficador.draw_background(
+            self.ax,
+            viz_mode=self.get_viz_mode_internal(),
+            anharmonic_mode=self.anharmonic_mode.get(),
+            fx_i=self.fx_interp, fy_i=self.fy_interp, int_i=self.int_interp,
+            lim_nm=300
+        )
+        # --------------------------------------------
+
+        self.line, = self.ax.plot([], [], 'o', markersize=6, color='royalblue', zorder=10)
+        self.trace, = self.ax.plot([], [], '-', lw=1, alpha=0.7, color='orange', zorder=9)
+        self.ax.set_xlabel('X [nm]'); self.ax.set_ylabel('Y [nm]')
+        self.ax.set_aspect('equal'); self.ax.grid(True, linestyle=':', alpha=0.5)
+        self.ax.set_xlim(-300, 300); self.ax.set_ylim(-300, 300)
+        self.canvas.draw()
+        self.update_gui_state()
 
     def start_simulation(self):
-        # ... (La lógica aquí no cambia) ...
         if self.animation and not self.is_running:
             self.animation.resume()
         else:
             if self.trajectory_data is None or self.animation is None:
-                self.reset_plot() 
-                if self.anharmonic_mode.get():
-                    if self.fx_interp is None:
-                        messagebox.showerror("Error", "Modo Anharmónico seleccionado, pero no se ha cargado ningún mapa de fuerzas.")
-                        return
-                    print("Iniciando nueva simulación ANHARMÓNICA...")
-                    self.trajectory_data = self.generate_data(mode='anharmonic')
-                else:
-                    print("Iniciando nueva simulación ARMÓNICA...")
-                    self.trajectory_data = self.generate_data(mode='harmonic')
-                if self.trajectory_data is not None:
-                    self.setup_animation()
-        self.is_running = True
-        self.update_button_states()
+                # Si empieza de cero, asegurar que el fondo coincida con el modo
+                self.reset_plot()
+                mode = 'anharmonic' if self.anharmonic_mode.get() else 'harmonic'
+                
+                # Validación
+                if mode == 'anharmonic' and not self.fx_interp:
+                    messagebox.showerror("Error", "Carga un archivo de mapa primero.")
+                    return
 
+                print(f"Iniciando simulación: {mode.upper()}")
+                # Llamada al simulador (igual que antes)
+                common = {'total_steps': p.total_steps, 'dt': p.dt, 'gamma': p.gamma, 'k_B': p.k_B, 'T': p.T}
+                if mode == 'anharmonic':
+                    traj = simulador.run_simulation(**common, fx_interp=self.fx_interp, fy_interp=self.fy_interp)
+                else:
+                    traj = simulador.run_simulation(**common, k_x=p.kappa_x, k_y=p.kappa_y)
+                self.trajectory_data = traj * 1e9
+                self.setup_animation()
+        self.is_running = True
+        self.update_gui_state()
+
+    # ... (pause_simulation, reset_simulation, setup_animation, animate_step IGUAL que antes) ...
+    # Para ahorrar espacio aquí, asume que son idénticas a la Versión 4, 
+    # solo asegúrate de copiar esas funciones al archivo final.
     def pause_simulation(self):
-        # ... (Sin cambios) ...
         if self.animation and self.is_running:
-            self.animation.pause()
-            self.is_running = False
-        self.update_button_states()
+             self.animation.pause()
+             self.is_running = False
+        self.update_gui_state()
 
     def reset_simulation(self):
-        # ... (Sin cambios) ...
         if self.animation:
             self.animation.event_source.stop()
             self.animation = None
@@ -153,137 +242,43 @@ class App(tk.Tk):
         self.line.set_data([], [])
         self.trace.set_data([], [])
         self.canvas.draw()
-        print("Trayectoria de simulación reiniciada.")
-        self.update_button_states()
-
-    def load_force_map(self):
-        # ... (Casi sin cambios) ...
-        filepath = filedialog.askopenfilename(filetypes=[("Archivos CSV", "*.csv")])
-        if not filepath: return
-        try:
-            self.fx_interp, self.fy_interp = lector_datos.cargar_mapa_fuerzas(filepath)
-            if self.fx_interp is not None:
-                filename = os.path.basename(filepath)
-                self.lbl_map_status.config(text=f"Archivo: {filename}", foreground="green")
-                messagebox.showinfo("Éxito", "Mapa de fuerzas cargado correctamente.")
-                self.anharmonic_mode.set(True)
-                self.reset_plot() # Redibuja el fondo con el nuevo mapa
-            # ... (resto del try/except sin cambios) ...
-        except Exception as e:
-            self.lbl_map_status.config(text="Error al cargar", foreground="red")
-            messagebox.showerror("Error de Carga", f"No se pudo cargar o procesar el archivo:\n{e}")
-            self.fx_interp = None; self.fy_interp = None
-            self.anharmonic_mode.set(False)
-        self.update_button_states()
-
-    def on_mode_change(self):
-        """Callback cuando el checkbox de MODO cambia."""
-        self.reset_plot() # Redibuja el fondo
-        self.update_button_states()
-
-    # --- Lógica de Gráficos (Ahora más simple) ---
-
-    def reset_plot(self):
-        """Limpia ejes y redibuja el fondo según los checkboxes."""
-        if self.animation:
-            self.animation.event_source.stop()
-            self.animation = None
-        self.is_running = False
-        self.trajectory_data = None
-        self.ax.clear()
+        self.update_gui_state()
         
-        # --- LÓGICA DE FONDO ACTUALIZADA ---
-        # Solo dibuja si el checkbox de "Mostrar Haz" está marcado
-        if self.show_force_map.get():
-            is_anharmonic = self.anharmonic_mode.get()
-            # Validar que tengamos datos para el modo anharmónico
-            if is_anharmonic and self.fx_interp is None:
-                pass # No dibujar nada si no hay archivo cargado
-            else:
-                # Llamada a la función refactorizada
-                graficador.draw_force_map(
-                    self.ax,
-                    anharmonic_mode=is_anharmonic,
-                    fx_interp=self.fx_interp,
-                    fy_interp=self.fy_interp,
-                    lim_nm=300 # Límite fijo
-                )
-        # --- FIN DE LÓGICA DE FONDO ---
-
-        self.line, = self.ax.plot([], [], 'o', markersize=6, color='royalblue', zorder=10)
-        self.trace, = self.ax.plot([], [], '-', lw=1, alpha=0.7, color='orange', zorder=9)
-        self.ax.set_xlabel('Posición X (nm)'); self.ax.set_ylabel('Posición Y (nm)')
-        self.ax.set_title('Simulación de Pinza Óptica')
-        self.ax.grid(True, linestyle='--', alpha=0.5, zorder=0)
-        self.ax.set_aspect('equal')
-        self.ax.set_xlim(-300, 300); self.ax.set_ylim(-300, 300)
-        self.canvas.draw()
-        self.update_button_states()
-        print("Lienzo de gráfico reiniciado.")
-
-    def generate_data(self, mode='harmonic'):
-        # ... (Sin cambios) ...
-        common_args = {'total_steps': p.total_steps, 'dt': p.dt, 'gamma': p.gamma, 'k_B': p.k_B, 'T': p.T}
-        if mode == 'anharmonic' and self.fx_interp:
-            trajectory = simulador.run_simulation(**common_args, fx_interp=self.fx_interp, fy_interp=self.fy_interp)
-        else:
-            trajectory = simulador.run_simulation(**common_args, k_x=p.kappa_x, k_y=p.kappa_y)
-        return trajectory * 1e9
-
     def setup_animation(self):
-        # ... (Lógica de zoom automático sin cambios) ...
-        std_dev_x = np.std(self.trajectory_data[:, 0])
-        std_dev_y = np.std(self.trajectory_data[:, 1])
-        max_range = max(std_dev_x, std_dev_y, 10.0) * 4
-        current_lim = self.ax.get_xlim()[1]
-        new_lim = max(max_range, current_lim)
-        self.ax.set_xlim(-new_lim, new_lim); self.ax.set_ylim(-new_lim, new_lim)
-        
-        num_frames = len(self.trajectory_data) // self.animation_step_size
-        self.animation = animation.FuncAnimation(
-            self.fig, self.animate_step, frames=num_frames,
-            interval=20, blit=True, repeat=False
-        )
+        std_x, std_y = np.std(self.trajectory_data[:,0]), np.std(self.trajectory_data[:,1])
+        lim = max(max(std_x, std_y, 10)*4, self.ax.get_xlim()[1])
+        self.ax.set_xlim(-lim, lim); self.ax.set_ylim(-lim, lim)
+        self.animation = animation.FuncAnimation(self.fig, self.animate_step, 
+            frames=len(self.trajectory_data)//self.animation_step_size, interval=20, blit=True, repeat=False)
         self.canvas.draw()
 
     def animate_step(self, i):
-        # ... (Lógica de estela armónica/anharmónica sin cambios) ...
         step = i * self.animation_step_size
         if step >= len(self.trajectory_data):
-            self.is_running = False; self.update_button_states()
+            self.is_running = False; self.update_gui_state()
             return self.line, self.trace
-        x_point = self.trajectory_data[step, 0]
-        y_point = self.trajectory_data[step, 1]
-        self.line.set_data([x_point], [y_point])
-        if self.anharmonic_mode.get():
-            start_trace = max(0, step - 2000) # Estela corta
-        else:
-            start_trace = max(0, step - 10000) # Estela larga
-        x_trace = self.trajectory_data[start_trace:step, 0]
-        y_trace = self.trajectory_data[start_trace:step, 1]
-        self.trace.set_data(x_trace, y_trace)
+        self.line.set_data([self.trajectory_data[step,0]], [self.trajectory_data[step,1]])
+        # Estela más corta si es modo anharmónico (que suele ser más débil/ruidoso)
+        start = max(0, step - (2000 if self.anharmonic_mode.get() else 10000))
+        self.trace.set_data(self.trajectory_data[start:step,0], self.trajectory_data[start:step,1])
         return self.line, self.trace
 
-    def update_button_states(self):
-        # ... (Sin cambios) ...
-        if self.is_running:
-            self.btn_start.config(state=tk.DISABLED); self.btn_pause.config(state=tk.NORMAL)
-            self.btn_reset.config(state=tk.NORMAL); self.btn_load_map.config(state=tk.DISABLED)
-            self.check_anharmonic.config(state=tk.DISABLED); self.check_show_map.config(state=tk.DISABLED)
-        else:
-            self.btn_pause.config(state=tk.DISABLED)
-            self.btn_reset.config(state=tk.NORMAL if (self.trajectory_data is not None or self.animation is not None) else tk.DISABLED)
-            if self.trajectory_data is None: self.btn_start.config(text="Iniciar", state=tk.NORMAL)
-            else: self.btn_start.config(text="Reanudar", state=tk.NORMAL)
-            self.btn_load_map.config(state=tk.NORMAL); self.check_anharmonic.config(state=tk.NORMAL)
-            self.check_show_map.config(state=tk.NORMAL)
-            if self.anharmonic_mode.get() and self.fx_interp is None:
-                self.btn_start.config(state=tk.DISABLED)
-                if "Error" not in self.lbl_map_status.cget("text"):
-                     self.lbl_map_status.config(text="Carga de archivo requerida", foreground="red")
+    def update_gui_state(self):
+        # Lógica de habilitar/deshabilitar botones
+        sim_active = self.is_running
+        has_data = self.trajectory_data is not None
+        
+        self.btn_start.config(state=tk.DISABLED if sim_active else tk.NORMAL,
+                              text="Reanudar" if has_data and not sim_active else "Iniciar")
+        self.btn_pause.config(state=tk.NORMAL if sim_active else tk.DISABLED)
+        self.btn_reset.config(state=tk.NORMAL if (has_data or self.animation) else tk.DISABLED)
+        
+        # No permitir cambios de modelo durante la simulación
+        state_settings = tk.DISABLED if sim_active else tk.NORMAL
+        self.check_anharmonic.config(state=state_settings)
+        self.btn_load.config(state=state_settings)
+        # La visualización SÍ se puede cambiar durante la simulación (pausada)
+        self.combo_viz.config(state="readonly" if not sim_active else tk.DISABLED)
 
-# ... (Bloque de prueba __main__ sin cambios)
 if __name__ == '__main__':
-    print("Iniciando la aplicación GUI en modo de prueba...")
-    app = App()
-    app.mainloop()
+    App().mainloop()
