@@ -1,245 +1,187 @@
 # -*- coding: utf-8 -*-
 """
 Visor de Datos Experimentales de Pinzas Ópticas.
-Versión 3: Corrección de nombres de archivo, detector de duplicados y animación fluida.
+Carga datos, muestra animación de trayectoria y resultados de análisis PSD.
 """
 
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
-import numpy as np
-import pandas as pd
-import os
-import sys
-
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import (
-    FigureCanvasTkAgg, NavigationToolbar2Tk
-)
+from tkinter import ttk, messagebox
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import matplotlib.animation as animation
+import numpy as np
+import sys
+import os
 
-# --- INICIO DE SOLUCIÓN DE RUTA ---
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.append(parent_dir)
-from utils import parametros as p
-# --- FIN DE SOLUCIÓN DE RUTA ---
+# --- SOLUCIÓN DE RUTAS ---
+# Necesaria para importar 'calculos' estando dentro de 'visualizacion'
+current_dir = os.path.dirname(os.path.abspath(__file__)) # carpeta visualizacion/
+project_root = os.path.dirname(current_dir)              # carpeta raiz pinzas_opticas/
+sys.path.append(project_root)
+# -------------------------
+
+# Importamos el procesador que moviste a la carpeta calculos
+try:
+    from calculos import procesamiento_experimental as procesador
+except ImportError as e:
+    messagebox.showerror("Error de Importación", 
+        f"No se pudo importar el módulo de cálculo.\n"
+        f"Asegúrate de que 'procesamiento_experimental.py' esté en la carpeta 'calculos'.\n\n"
+        f"Detalle: {e}")
+    sys.exit()
 
 class ExperimentalViewer(tk.Tk):
     
     def __init__(self):
         super().__init__()
         
-        self.title("Visor Experimental (Corrección de Diagonal)")
-        self.geometry("950x750")
-
-        # --- Variables de datos ---
-        self.traj_x_nm = None
-        self.traj_y_nm = None
+        self.title("Visor de Datos Experimentales")
+        self.geometry("1100x800")
+        
+        # Variables de estado
+        self.data = None
         self.animation = None
-        self.is_running = False
         
-        # CONFIGURACIÓN DE ANIMACIÓN
-        self.animation_step_size = 20  # Saltos de 20 puntos (equilibrio velocidad/fluidez)
-        self.trace_length_steps = 150  # Longitud de estela (en pasos, no puntos)
+        # --- 1. Ejecutar Análisis Automático al Inicio ---
+        self.run_analysis()
 
-        # =====================================================================
-        # 1. Panel de Control
-        # =====================================================================
-        control_frame = ttk.LabelFrame(self, text="Control de Datos")
-        control_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=5)
+        # --- 2. Configurar Pestañas ---
+        tab_control = ttk.Notebook(self)
         
-        self.btn_load = ttk.Button(
-            control_frame, 
-            text="Cargar Archivos (_Sx)", 
-            command=self.load_data
-        )
-        self.btn_load.pack(side=tk.LEFT, padx=10, pady=10)
+        # Pestaña 1: Animación
+        self.tab_anim = ttk.Frame(tab_control)
+        tab_control.add(self.tab_anim, text='Trayectoria (Animación)')
         
-        self.lbl_params = ttk.Label(control_frame, text="Estado: Esperando...", foreground="gray")
-        self.lbl_params.pack(side=tk.LEFT, padx=10)
-
-        self.btn_play = ttk.Button(control_frame, text="▶ Reproducir", command=self.play_animation, state=tk.DISABLED)
-        self.btn_play.pack(side=tk.RIGHT, padx=5)
+        # Pestaña 2: Análisis Científico
+        self.tab_analisis = ttk.Frame(tab_control)
+        tab_control.add(self.tab_analisis, text='Análisis PSD y Ajuste')
         
-        self.btn_pause = ttk.Button(control_frame, text="⏸ Pausar", command=self.pause_animation, state=tk.DISABLED)
-        self.btn_pause.pack(side=tk.RIGHT, padx=5)
+        tab_control.pack(expand=1, fill="both")
 
-        # =====================================================================
-        # 2. Lienzo
-        # =====================================================================
-        plot_frame = ttk.Frame(self)
-        plot_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        # --- 3. Construir Interfaz ---
+        self.build_animation_tab()
+        self.build_analysis_tab()
 
-        self.fig = Figure(figsize=(7, 5), dpi=100)
-        self.ax = self.fig.add_subplot(111)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
-        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+    def run_analysis(self):
+        """Llama al script de cálculo para procesar los datos fijos."""
+        print("Cargando datos y ejecutando análisis...")
         
-        toolbar = NavigationToolbar2Tk(self.canvas, plot_frame)
-        toolbar.update()
-        self.init_plot()
-
-    def init_plot(self):
-        self.ax.clear()
-        self.ax.set_xlabel('Posición X (nm)')
-        self.ax.set_ylabel('Posición Y (nm)')
-        self.ax.set_title('Trayectoria Experimental')
-        self.ax.grid(True, linestyle='--', alpha=0.5)
-        self.ax.set_aspect('equal')
-        self.ax.set_xlim(-300, 300)
-        self.ax.set_ylim(-300, 300)
-        # Colores Cian/Violeta
-        self.line, = self.ax.plot([], [], 'o', markersize=6, color='cyan', markeredgecolor='blue', zorder=10)
-        self.trace, = self.ax.plot([], [], '-', lw=1, alpha=0.6, color='darkviolet', zorder=5)
-        self.canvas.draw()
-
-    def parse_calibration_header(self, filepath):
-        # (Misma función de lectura de metadatos que antes)
-        meta = {'T': None, 'kx': None, 'ky': None}
-        try:
-            with open(filepath, 'r', encoding='latin-1') as f:
-                lines = f.readlines()
-            for i, line in enumerate(lines):
-                if "Temperature (K)" in line:
-                    data = lines[i+1].strip().split('\t')
-                    if len(data) >= 4: meta['T'] = float(data[3])
-                if "kx EP" in line and "ky EP" in line:
-                    data = lines[i+1].strip().split('\t')
-                    if len(data) >= 4: 
-                        meta['kx'] = float(data[2])
-                        meta['ky'] = float(data[3])
-            return meta
-        except: return meta
-
-    def load_data(self):
-        filepath_sx = filedialog.askopenfilename(title="Selecciona el archivo _Sx")
-        if not filepath_sx: return
-
-        # --- 1. DEDUCCIÓN DE NOMBRES ROBUSTA ---
-        directory = os.path.dirname(filepath_sx)
-        filename_sx = os.path.basename(filepath_sx)
+        # Llamamos a la función principal del script de cálculo
+        # Esta función carga los archivos, calcula el PSD y guarda la imagen
+        resultado = procesador.procesar_y_guardar()
         
-        # Reemplazar _Sx por _Sy SOLAMENTE en el nombre del archivo
-        if "_Sx" in filename_sx:
-            filename_sy = filename_sx.replace("_Sx", "_Sy")
-            filename_sum = filename_sx.replace("_Sx", "_Sum")
-            # El archivo de calibración suele ser el nombre base sin _Sx
-            # Probamos quitando la extensión si la tiene
-            name_no_ext = os.path.splitext(filename_sx)[0]
-            filename_calib = name_no_ext.replace("_Sx", "") # Intento 1
-            if "." in filename_sx: # Si tiene extension .txt o similar
-                 filename_calib = filename_sx.replace("_Sx", "") # Intento 2
+        if 'error' in resultado:
+            messagebox.showerror("Error de Datos", 
+                f"{resultado['error']}\n\n"
+                "Verifica que tus archivos .dat estén en la carpeta correcta "
+                "y tengan los nombres correctos (datos_sx.dat, etc).")
+            # No cerramos la app para permitir al usuario ver el error
         else:
-            messagebox.showerror("Error de Nombre", "El archivo seleccionado debe contener '_Sx' en su nombre.")
-            return
+            self.data = resultado
+            print("Datos cargados y procesados exitosamente.")
 
-        filepath_sy = os.path.join(directory, filename_sy)
-        filepath_sum = os.path.join(directory, filename_sum)
-        filepath_calib = os.path.join(directory, filename_calib)
-
-        if not (os.path.exists(filepath_sy) and os.path.exists(filepath_sum)):
-            # Intento de fallback: buscar el archivo de calibración sin extensión
-            filepath_calib_noext = os.path.splitext(filepath_calib)[0]
-            if os.path.exists(filepath_calib_noext):
-                filepath_calib = filepath_calib_noext
-            
-            if not (os.path.exists(filepath_sy) and os.path.exists(filepath_sum)):
-                messagebox.showerror("Error", f"No se encontraron:\n{filename_sy}\n{filename_sum}")
-                return
-
-        try:
-            # Leer metadatos
-            meta = self.parse_calibration_header(filepath_calib)
-            if meta['T'] is None: # Fallback a parametros.py
-                T_exp, kx_exp, ky_exp = p.T, p.kappa_x, p.kappa_y
-            else:
-                T_exp, kx_exp, ky_exp = meta['T'], meta['kx'], meta['ky']
-
-            # Leer Datos
-            df_sx = pd.read_csv(filepath_sx, sep='\t', header=None)
-            df_sy = pd.read_csv(filepath_sy, sep='\t', header=None) # <--- AQUI LEE EL ARCHIVO Y
-            df_sum = pd.read_csv(filepath_sum, sep='\t', header=None)
-
-            raw_sx = df_sx.values.flatten()
-            raw_sy = df_sy.values.flatten()
-            raw_sum = df_sum.values.flatten()
-            
-            # Recortar
-            min_len = min(len(raw_sx), len(raw_sy), len(raw_sum))
-            raw_sx = raw_sx[:min_len]; raw_sy = raw_sy[:min_len]; raw_sum = raw_sum[:min_len]
-
-            # --- CHECK DE CORRELACIÓN (Detector de Diagonal) ---
-            correlation = np.corrcoef(raw_sx, raw_sy)[0, 1]
-            if correlation > 0.95:
-                messagebox.showwarning(
-                    "¡ALERTA DE DATOS!", 
-                    f"Se detectó una correlación del {correlation*100:.1f}% entre X e Y.\n"
-                    "Es muy probable que se esté leyendo el mismo archivo dos veces\n"
-                    "o que los archivos contengan los mismos datos."
-                )
-
-            # Normalización
-            norm_x = (raw_sx / raw_sum) - np.mean(raw_sx / raw_sum)
-            norm_y = (raw_sy / raw_sum) - np.mean(raw_sy / raw_sum)
-
-            # Calibración
-            var_theory_x = (p.k_B * T_exp) / kx_exp
-            var_theory_y = (p.k_B * T_exp) / ky_exp
-            factor_x = np.sqrt(var_theory_x) * 1e9 / np.std(norm_x)
-            factor_y = np.sqrt(var_theory_y) * 1e9 / np.std(norm_y)
-            
-            self.traj_x_nm = norm_x * factor_x
-            self.traj_y_nm = norm_y * factor_y
-            
-            self.lbl_params.config(
-                text=f"Cargado: {min_len} pts | Corr X-Y: {correlation:.2f}", 
-                foreground="blue" if correlation < 0.5 else "red"
-            )
-            self.btn_play.config(state=tk.NORMAL)
-            self.setup_animation()
-
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-
-    def setup_animation(self):
-        if self.animation: self.animation.event_source.stop()
+    def build_animation_tab(self):
+        """Construye la pestaña de animación de la partícula."""
+        # Panel de información superior
+        info_frame = ttk.Frame(self.tab_anim)
+        info_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=5)
         
-        max_range = max(np.std(self.traj_x_nm), np.std(self.traj_y_nm)) * 4
-        self.ax.set_xlim(-max_range, max_range)
-        self.ax.set_ylim(-max_range, max_range)
+        if self.data:
+            # Mostramos los resultados físicos calculados (k y fc)
+            # Convertimos k a pN/um para que sea legible
+            kx_val = self.data.get('kx_display', 0)
+            ky_val = self.data.get('ky_display', 0)
+
+            
+            texto_info = f"Resultados: kx={kx_val:.2f} pN/µm | ky={ky_val:.2f} pN/µm"            
+            lbl = ttk.Label(info_frame, text=texto_info, font=("Arial", 12, "bold"), foreground="#333")
+            lbl.pack()
+
+        # Lienzo de Matplotlib para la animación
+        self.fig_anim = procesador.plt.figure(figsize=(6, 6))
+        self.ax_anim = self.fig_anim.add_subplot(111)
         
-        num_frames = len(self.traj_x_nm) // self.animation_step_size
-        self.animation = animation.FuncAnimation(
-            self.fig, self.animate_step, frames=num_frames,
-            interval=20, blit=True, repeat=False
+        self.canvas_anim = FigureCanvasTkAgg(self.fig_anim, master=self.tab_anim)
+        self.canvas_anim.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        
+        # Barra de herramientas (Zoom, Pan)
+        toolbar = NavigationToolbar2Tk(self.canvas_anim, self.tab_anim)
+        toolbar.update()
+        
+        # Iniciar la animación si hay datos
+        if self.data:
+            self.start_animation()
+
+    def start_animation(self):
+        """Configura y arranca la animación."""
+        self.ax_anim.clear()
+        self.ax_anim.set_aspect('equal')
+        self.ax_anim.grid(True, alpha=0.3, linestyle='--')
+        self.ax_anim.set_title("Movimiento Browniano Experimental (Normalizado)")
+        self.ax_anim.set_xlabel("X (u.a.)")
+        self.ax_anim.set_ylabel("Y (u.a.)")
+        
+        # Usamos las trayectorias normalizadas que nos devolvió el procesador
+        x_data = self.data['traj_x']
+        y_data = self.data['traj_y']
+        
+        # Definir límites fijos para que no 'baile' el eje
+        lim = max(np.std(x_data), np.std(y_data)) * 4
+        self.ax_anim.set_xlim(-lim, lim)
+        self.ax_anim.set_ylim(-lim, lim)
+        
+        # Elementos gráficos
+        # Cian para la partícula, Violeta para la estela (Cyberpunk style)
+        line, = self.ax_anim.plot([], [], 'o', color='cyan', markeredgecolor='blue', zorder=10, label='Partícula')
+        trace, = self.ax_anim.plot([], [], '-', color='darkviolet', alpha=0.5, zorder=5)
+        self.ax_anim.legend(loc='upper right')
+        
+        def update(frame):
+            # Saltamos cuadros para que la animación no sea eterna
+            # Ajusta 'step_size' si va muy rápido o muy lento
+            step_size = 50 
+            idx = frame * step_size
+            
+            if idx >= len(x_data): 
+                return line, trace
+            
+            # Actualizar posición
+            line.set_data([x_data[idx]], [y_data[idx]])
+            
+            # Estela "inteligente": Muestra los últimos N puntos
+            # y se asegura de llegar hasta el punto actual (idx+1)
+            trace_len = 500
+            start = max(0, idx - trace_len)
+            trace.set_data(x_data[start:idx+1], y_data[start:idx+1])
+            
+            return line, trace
+            
+        # Crear la animación
+        self.ani = animation.FuncAnimation(
+            self.fig_anim, 
+            update, 
+            frames=len(x_data)//50, 
+            interval=20, 
+            blit=True,
+            repeat=True # Repetir al terminar
         )
-        self.is_running = True
-        self.btn_play.config(state=tk.DISABLED); self.btn_pause.config(state=tk.NORMAL)
-        self.canvas.draw()
 
-    def animate_step(self, i):
-        step = i * self.animation_step_size
-        if step >= len(self.traj_x_nm): return self.line, self.trace
-
-        # 1. Actualizar punto
-        x = self.traj_x_nm[step]
-        y = self.traj_y_nm[step]
-        self.line.set_data([x], [y])
-        
-        # 2. Actualizar estela (CONECTADA AL PUNTO)
-        # Calcular inicio de estela
-        start = max(0, step - (self.trace_length_steps * self.animation_step_size))
-        
-        # IMPORTANTE: Slice hasta 'step + 1' para incluir el punto actual
-        # y cerrar el hueco visual.
-        self.trace.set_data(self.traj_x_nm[start:step+1], self.traj_y_nm[start:step+1])
-        
-        return self.line, self.trace
-
-    def play_animation(self):
-        if self.animation: self.animation.resume(); self.is_running = True; self.btn_play.config(state=tk.DISABLED); self.btn_pause.config(state=tk.NORMAL)
-    def pause_animation(self):
-        if self.animation: self.animation.pause(); self.is_running = False; self.btn_play.config(state=tk.NORMAL); self.btn_pause.config(state=tk.DISABLED)
+    def build_analysis_tab(self):
+        """Construye la pestaña con la gráfica del PSD."""
+        # Si el procesador generó una figura (fig), la incrustamos aquí
+        if self.data and 'fig' in self.data:
+            fig_psd = self.data['fig']
+            
+            # Canvas para la figura estática
+            canvas_psd = FigureCanvasTkAgg(fig_psd, master=self.tab_analisis)
+            canvas_psd.draw()
+            canvas_psd.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+            
+            # Barra de herramientas para guardar la gráfica manualmente si se desea
+            toolbar = NavigationToolbar2Tk(canvas_psd, self.tab_analisis)
+            toolbar.update()
+        else:
+            lbl = ttk.Label(self.tab_analisis, text="No hay datos de análisis disponibles.")
+            lbl.pack(pady=20)
 
 if __name__ == "__main__":
     app = ExperimentalViewer()
