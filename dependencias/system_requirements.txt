@@ -1,0 +1,19 @@
+Requisitos del Sistema para Pinzas Ópticas:
+
+1. Python 3.10 o superior.
+2. Git (para clonar el repositorio).
+3. Librerías de interfaz gráfica (Tkinter).
+
+Instrucciones de instalación según el sistema operativo:
+
+[Linux / Debian / Ubuntu]
+Ejecutar en terminal:
+sudo apt-get update
+sudo apt-get install python3-tk
+
+[Windows]
+Al instalar Python desde python.org, asegurarse de marcar la casilla "tcl/tk and IDLE".
+(Generalmente viene instalado por defecto).
+
+[MacOS]
+brew install python-tk

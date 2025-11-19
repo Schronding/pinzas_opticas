@@ -129,33 +129,25 @@ class ExperimentalViewer(tk.Tk):
         self.ax_anim.set_xlim(-lim, lim)
         self.ax_anim.set_ylim(-lim, lim)
         
-        # Elementos gráficos
-        # Cian para la partícula, Violeta para la estela (Cyberpunk style)
         line, = self.ax_anim.plot([], [], 'o', color='cyan', markeredgecolor='blue', zorder=10, label='Partícula')
-        trace, = self.ax_anim.plot([], [], '-', color='darkviolet', alpha=0.5, zorder=5)
+        trace, = self.ax_anim.plot([], [], '.', color='darkviolet', alpha=0.5, zorder=5)
         self.ax_anim.legend(loc='upper right')
         
         def update(frame):
-            # Saltamos cuadros para que la animación no sea eterna
-            # Ajusta 'step_size' si va muy rápido o muy lento
-            step_size = 50 
+            step_size = 50
             idx = frame * step_size
             
             if idx >= len(x_data): 
                 return line, trace
             
-            # Actualizar posición
             line.set_data([x_data[idx]], [y_data[idx]])
             
-            # Estela "inteligente": Muestra los últimos N puntos
-            # y se asegura de llegar hasta el punto actual (idx+1)
-            trace_len = 500
+            trace_len = 100
             start = max(0, idx - trace_len)
             trace.set_data(x_data[start:idx+1], y_data[start:idx+1])
             
             return line, trace
             
-        # Crear la animación
         self.ani = animation.FuncAnimation(
             self.fig_anim, 
             update, 

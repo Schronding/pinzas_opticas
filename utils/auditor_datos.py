@@ -1,18 +1,9 @@
-# -*- coding: utf-8 -*-
-"""
-Auditor de Integridad de Datos Experimentales.
-Realiza pruebas forenses para detectar duplicados, correlaciones sospechosas
-y problemas de formato en los archivos de datos.
-"""
-
 import os
 import hashlib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# --- CONFIGURACIÓN ---
-# Ajusta la ruta si es necesario para apuntar a tu carpeta 'datos_experimental'
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, 'datos_experimentales')
 
