@@ -19,7 +19,8 @@ except ImportError as e:
         f"Detalle: {e}")
     sys.exit()
 
-class ExperimentalViewer(ttk.Frame):    
+class ExperimentalViewer(ttk.Frame):
+    
     def __init__(self, master=None):
         super().__init__(master)
         self.pack(fill=tk.BOTH, expand=True)
