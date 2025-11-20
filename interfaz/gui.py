@@ -27,12 +27,11 @@ from utils import parametros as p
 from utils import lector_datos
 from visualizacion import graficador
 
-class App(tk.Tk):
+class App(ttk.Frame):
     
-    def __init__(self):
-        super().__init__()
-        self.title("Simulador de Pinzas Ópticas - Avanzado")
-        self.geometry("900x750") # Un poco más grande
+    def __init__(self, master=None):
+        super().__init__(master)
+        self.pack(fill=tk.BOTH, expand=True)
 
         # --- Estado de Simulación ---
         self.trajectory_data = None
@@ -172,15 +171,12 @@ class App(tk.Tk):
             self.anharmonic_mode.set(False)
         self.update_gui_state()
 
-    # --- SIMULACIÓN Y GRÁFICOS ---
 
     def reset_plot(self):
-        """Redibuja completamente el gráfico y su fondo."""
         if self.animation: self.animation.event_source.stop(); self.animation = None
         self.is_running = False; self.trajectory_data = None
         self.ax.clear()
         
-        # --- DIBUJAR FONDO USANDO EL NUEVO MÓDULO ---
         graficador.draw_background(
             self.ax,
             viz_mode=self.get_viz_mode_internal(),
@@ -188,7 +184,6 @@ class App(tk.Tk):
             fx_i=self.fx_interp, fy_i=self.fy_interp, int_i=self.int_interp,
             lim_nm=300
         )
-        # --------------------------------------------
 
         self.line, = self.ax.plot([], [], 'o', markersize=6, color='royalblue', zorder=10)
         self.trace, = self.ax.plot([], [], '-', lw=1, alpha=0.7, color='orange', zorder=9)
@@ -203,17 +198,14 @@ class App(tk.Tk):
             self.animation.resume()
         else:
             if self.trajectory_data is None or self.animation is None:
-                # Si empieza de cero, asegurar que el fondo coincida con el modo
                 self.reset_plot()
                 mode = 'anharmonic' if self.anharmonic_mode.get() else 'harmonic'
                 
-                # Validación
                 if mode == 'anharmonic' and not self.fx_interp:
                     messagebox.showerror("Error", "Carga un archivo de mapa primero.")
                     return
 
                 print(f"Iniciando simulación: {mode.upper()}")
-                # Llamada al simulador (igual que antes)
                 common = {'total_steps': p.total_steps, 'dt': p.dt, 'gamma': p.gamma, 'k_B': p.k_B, 'T': p.T}
                 if mode == 'anharmonic':
                     traj = simulador.run_simulation(**common, fx_interp=self.fx_interp, fy_interp=self.fy_interp)
@@ -224,9 +216,7 @@ class App(tk.Tk):
         self.is_running = True
         self.update_gui_state()
 
-    # ... (pause_simulation, reset_simulation, setup_animation, animate_step IGUAL que antes) ...
-    # Para ahorrar espacio aquí, asume que son idénticas a la Versión 4, 
-    # solo asegúrate de copiar esas funciones al archivo final.
+
     def pause_simulation(self):
         if self.animation and self.is_running:
              self.animation.pause()
@@ -258,13 +248,11 @@ class App(tk.Tk):
             self.is_running = False; self.update_gui_state()
             return self.line, self.trace
         self.line.set_data([self.trajectory_data[step,0]], [self.trajectory_data[step,1]])
-        # Estela más corta si es modo anharmónico (que suele ser más débil/ruidoso)
         start = max(0, step - (2000 if self.anharmonic_mode.get() else 10000))
         self.trace.set_data(self.trajectory_data[start:step,0], self.trajectory_data[start:step,1])
         return self.line, self.trace
 
     def update_gui_state(self):
-        # Lógica de habilitar/deshabilitar botones
         sim_active = self.is_running
         has_data = self.trajectory_data is not None
         
@@ -273,12 +261,16 @@ class App(tk.Tk):
         self.btn_pause.config(state=tk.NORMAL if sim_active else tk.DISABLED)
         self.btn_reset.config(state=tk.NORMAL if (has_data or self.animation) else tk.DISABLED)
         
-        # No permitir cambios de modelo durante la simulación
         state_settings = tk.DISABLED if sim_active else tk.NORMAL
         self.check_anharmonic.config(state=state_settings)
         self.btn_load.config(state=state_settings)
-        # La visualización SÍ se puede cambiar durante la simulación (pausada)
         self.combo_viz.config(state="readonly" if not sim_active else tk.DISABLED)
 
+
 if __name__ == '__main__':
-    App().mainloop()
+    print("Iniciando la aplicación GUI en modo de prueba...")
+    root = tk.Tk()
+    root.title("Prueba Simulador")
+    root.geometry("800x700")
+    app = App(master=root)
+    root.mainloop()

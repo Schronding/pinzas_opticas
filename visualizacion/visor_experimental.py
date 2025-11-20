@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Visor de Datos Experimentales de Pinzas Ópticas.
-Carga datos, muestra animación de trayectoria y resultados de análisis PSD.
-"""
-
 import tkinter as tk
 from tkinter import ttk, messagebox
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -12,14 +6,10 @@ import numpy as np
 import sys
 import os
 
-# --- SOLUCIÓN DE RUTAS ---
-# Necesaria para importar 'calculos' estando dentro de 'visualizacion'
 current_dir = os.path.dirname(os.path.abspath(__file__)) # carpeta visualizacion/
 project_root = os.path.dirname(current_dir)              # carpeta raiz pinzas_opticas/
 sys.path.append(project_root)
-# -------------------------
 
-# Importamos el procesador que moviste a la carpeta calculos
 try:
     from calculos import procesamiento_experimental as procesador
 except ImportError as e:
@@ -29,29 +19,20 @@ except ImportError as e:
         f"Detalle: {e}")
     sys.exit()
 
-class ExperimentalViewer(tk.Tk):
-    
-    def __init__(self):
-        super().__init__()
-        
-        self.title("Visor de Datos Experimentales")
-        self.geometry("1100x800")
-        
-        # Variables de estado
+class ExperimentalViewer(ttk.Frame):    
+    def __init__(self, master=None):
+        super().__init__(master)
+        self.pack(fill=tk.BOTH, expand=True)
         self.data = None
         self.animation = None
         
-        # --- 1. Ejecutar Análisis Automático al Inicio ---
         self.run_analysis()
 
-        # --- 2. Configurar Pestañas ---
         tab_control = ttk.Notebook(self)
         
-        # Pestaña 1: Animación
         self.tab_anim = ttk.Frame(tab_control)
         tab_control.add(self.tab_anim, text='Trayectoria (Animación)')
         
-        # Pestaña 2: Análisis Científico
         self.tab_analisis = ttk.Frame(tab_control)
         tab_control.add(self.tab_analisis, text='Análisis PSD y Ajuste')
         
@@ -168,7 +149,6 @@ class ExperimentalViewer(tk.Tk):
             canvas_psd.draw()
             canvas_psd.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
             
-            # Barra de herramientas para guardar la gráfica manualmente si se desea
             toolbar = NavigationToolbar2Tk(canvas_psd, self.tab_analisis)
             toolbar.update()
         else:
@@ -176,5 +156,8 @@ class ExperimentalViewer(tk.Tk):
             lbl.pack(pady=20)
 
 if __name__ == "__main__":
-    app = ExperimentalViewer()
-    app.mainloop()
+    root = tk.Tk()
+    root.title("Prueba Visor Experimental")
+    root.geometry("1100x800")
+    app = ExperimentalViewer(master=root)
+    root.mainloop()
