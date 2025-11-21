@@ -24,7 +24,6 @@ if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
 def lorentzian(f, fc, D):
-    """Modelo Lorentziano: P(f) = D / (pi^2 * (fc^2 + f^2))"""
     return D / (np.pi**2 * (fc**2 + f**2))
 
 def leer_metadatos(filepath):
@@ -73,14 +72,10 @@ def procesar_y_guardar():
     f_x, Pxx = signal.welch(norm_x, fs, nperseg=4096) # Más resolución en baja frecuencia
     f_y, Pyy = signal.welch(norm_y, fs, nperseg=4096)
 
-    # 4. Ajuste (CORREGIDO)
-    # Ajustamos en el rango donde está la "rodilla" (corner freq).
-    # Según tu archivo, fc es ~16 Hz.
+
     mask = (f_x > 1) & (f_x < 2000) 
     
-    # Adivinanza inicial (p0) MEJORADA:
-    # fc = 15 Hz (cerca de 16.4 Hz)
-    # D = promedio de la meseta
+ 
     p0_x = [15, np.mean(Pxx[:10])]
     p0_y = [15, np.mean(Pyy[:10])]
     
@@ -130,8 +125,6 @@ def procesar_y_guardar():
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_DIR, 'analisis_psd_completo.png'), dpi=150)
     
-    # Retorno datos (kx y ky en SI para consistencia interna, o ya convertidos si prefieres mostrarlos)
-    # Aquí devolvemos los convertidos para que la GUI los muestre directo.
     return {
         'fig': fig,
         'traj_x': norm_x, 'traj_y': norm_y,
