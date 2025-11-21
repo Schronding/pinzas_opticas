@@ -15,7 +15,6 @@ def draw_background(ax, viz_mode='force', anharmonic_mode=False,
 
     print(f"Dibujando fondo: {viz_mode.upper()} (Modo sim: {'Anharmónico' if anharmonic_mode else 'Armónico'})")
     
-    # 1. Crear malla de visualización
     grid_points = 150 # Mayor resolución para mejor visualización
     x = np.linspace(-lim_nm, lim_nm, grid_points)
     y = np.linspace(-lim_nm, lim_nm, grid_points)

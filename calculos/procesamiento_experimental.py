@@ -1,12 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Módulo de procesamiento de datos experimentales.
-Versión alineada con 'Analisis_señal_profe.ipynb':
-- Usa FFT directa (no Welch) para máxima resolución en baja frecuencia.
-- Elimina la doble normalización (los archivos _nor ya vienen listos).
-- Implementa un ajuste robusto para encontrar la frecuencia de corte (fc).
-"""
-
 import numpy as np
 import pandas as pd
 import os
@@ -14,14 +5,11 @@ import sys
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 
-# --- CONFIGURACIÓN DE RUTAS ---
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(CURRENT_DIR)
 DATA_DIR = os.path.join(BASE_DIR, 'datos_experimentales') # Carpeta corregida
 
 FILES = {
-    # Asumimos que renombraste tus archivos _nor.dat a estos nombres estandarizados
-    # O si prefieres, el script puede leer cualquier .dat que encuentre.
     'sx': os.path.join(DATA_DIR, 'datos_sx.dat'), 
     'sy': os.path.join(DATA_DIR, 'datos_sy.dat'),
     'calib': os.path.join(DATA_DIR, 'datos_calibracion.txt')
@@ -39,33 +27,27 @@ def lorentzian(f, fc, D):
     return D / (np.pi**2 * (fc**2 + f**2))
 
 def calcular_psd_fft(senal, fs):
-    """
-    Calcula el PSD usando FFT directa (Estilo del Notebook del Profe).
-    Mantiene la resolución completa en bajas frecuencias.
-    """
+
     N = len(senal)
     dt = 1.0 / fs
     
-    # 1. FFT
+    # FFT
     # Normalización estándar de numpy para obtener amplitudes físicas correctas
     fft_vals = np.fft.fft(senal)
     
-    # 2. Calcular Potencia (One-Sided PSD)
+    # Calcular Potencia (One-Sided PSD)
     # Formula: |FFT|^2 * dt / N
     # Multiplicamos por 2 para compensar la parte negativa del espectro que borramos
     psd = (np.abs(fft_vals)**2) * dt / N
     psd = psd * 2 
     
-    # 3. Frecuencias
     freqs = np.fft.fftfreq(N, dt)
     
-    # 4. Filtrar solo frecuencias positivas
-    # Omitimos la componente DC (índice 0) y las negativas
     mask = (freqs > 0)
     return freqs[mask], psd[mask]
 
 def leer_metadatos(filepath):
-    meta = {'T': 298.15, 'R': 1.0e-6} # Default: 25°C, 1 micra radio
+    meta = {'T': 298.15, 'R': 1.0e-6} 
     try:
         with open(filepath, 'r', encoding='latin-1') as f:
             lines = f.readlines()
@@ -81,23 +63,17 @@ def procesar_y_guardar():
     print(f"--- Iniciando Análisis (Método FFT Directa) ---")
     print(f"Directorio: {DATA_DIR}")
     
-    # 1. Cargar Archivos
     try:
-        # Intentamos cargar con pandas, asumiendo tabuladores o espacios
         df_sx = pd.read_csv(FILES['sx'], sep='\s+', header=None, engine='python')
         df_sy = pd.read_csv(FILES['sy'], sep='\s+', header=None, engine='python')
         meta = leer_metadatos(FILES['calib'])
         
-        # Si el archivo tiene una sola columna, la tomamos directa. 
-        # Si tiene tiempo y señal, tomamos la señal (asumiendo col 1)
         raw_sx = df_sx.iloc[:, 0].values if df_sx.shape[1] == 1 else df_sx.iloc[:, 1].values
         raw_sy = df_sy.iloc[:, 0].values if df_sy.shape[1] == 1 else df_sy.iloc[:, 1].values
         
     except Exception as e:
         return {'error': f"Error cargando datos: {e}.\nRevisa nombres en 'datos_experimentales'."}
 
-    # 2. Pre-procesamiento (SOLO CENTRAR)
-    # ¡No dividimos por la suma! Los datos _nor ya vienen normalizados en amplitud.
     norm_x = raw_sx - np.mean(raw_sx)
     norm_y = raw_sy - np.mean(raw_sy)
 
