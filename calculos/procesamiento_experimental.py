@@ -5,10 +5,17 @@ import sys
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 
+# By using the 'os' library we are able to more easily handle the 
+# file structure, as we take the directory portion of a given file
+# system path
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(CURRENT_DIR)
-DATA_DIR = os.path.join(BASE_DIR, 'datos_experimentales') # Carpeta corregida
+DATA_DIR = os.path.join(BASE_DIR, 'datos_experimentales') 
 
+# While the code was optimized for debian 12, by having use of 
+# 'os.path.join' the library makes sure that all the paths are 
+# ajusted to the specific operating system where the optical tweezers
+# are being executed. 
 FILES = {
     'sx': os.path.join(DATA_DIR, 'datos_sx.dat'), 
     'sy': os.path.join(DATA_DIR, 'datos_sy.dat'),
@@ -21,7 +28,7 @@ if not os.path.exists(OUTPUT_DIR):
 
 def lorentzian(f, fc, D):
     """
-    Modelo Lorentziano teórico para movimiento Browniano.
+    Theoretical Lorentzian behavior for brownian motion.
     S(f) = D / (pi^2 * (fc^2 + f^2))
     """
     return D / (np.pi**2 * (fc**2 + f**2))
@@ -29,21 +36,41 @@ def lorentzian(f, fc, D):
 def calcular_psd_fft(senal, fs):
 
     N = len(senal)
+    # By dividing 1 by the frequency we're obtaining the specific
+    # number of Hertz we need to have our time interval Delta t. 
     dt = 1.0 / fs
     
-    # FFT
-    # Normalización estándar de numpy para obtener amplitudes físicas correctas
+    # Fast Fourier Transform
+    # Standard normalization of numpy to get the correct physical amplitudes. 
     fft_vals = np.fft.fft(senal)
+
     
-    # Calcular Potencia (One-Sided PSD)
+    # Calculate potency (one-sided PSD). The reason why we use just 
+    # one side is that... I don't really know. 
     # Formula: |FFT|^2 * dt / N
-    # Multiplicamos por 2 para compensar la parte negativa del espectro que borramos
+
     psd = (np.abs(fft_vals)**2) * dt / N
+    # As the 'ndarray' that is created by the 'np.fft.fft()' function
+    # is being squared, does that mean that just the amplitude is being 
+    # squared? Or are the sines and cosines too? I know they can, but
+    # what would that mean physically? 
+
     psd = psd * 2 
-    
+    # We multiply by 2 to compensate the negative part of the 
+    # spectrum. 
+
     freqs = np.fft.fftfreq(N, dt)
-    
+    # What is a 'bin center'? It seems that the only difference 
+    # between ...fft and ...fftreq are those bin centers. Are these
+    # the points where the cosine and sine frequencies of the discrete
+    # fourier transform are equal to 1? 
+
     mask = (freqs > 0)
+    # This seems to be a similar action than when we performed the 
+    # PSD, completely ignoring the values at the left... which might
+    # be negative time, and as negative time doesn't really help
+    # in our simulation, as it would be what passed before, we can 
+    # ignore it? 
     return freqs[mask], psd[mask]
 
 def leer_metadatos(filepath):
@@ -65,6 +92,10 @@ def procesar_y_guardar():
     
     try:
         df_sx = pd.read_csv(FILES['sx'], sep='\s+', header=None, engine='python')
+        # Why we use the 'engine' python? This means that it is python
+        # that process the values? I assume it is by the library, as it is
+        # based on C++. That python read the values seems slow... but
+        # these are just the data, python should be enough. 
         df_sy = pd.read_csv(FILES['sy'], sep='\s+', header=None, engine='python')
         meta = leer_metadatos(FILES['calib'])
         
@@ -74,28 +105,39 @@ def procesar_y_guardar():
     except Exception as e:
         return {'error': f"Error cargando datos: {e}.\nRevisa nombres en 'datos_experimentales'."}
 
+    # This is the normalization of data that appeared on the 
+    # 'Viscosity measurements on micron-size scale using optical tweezers'
+    # paper. 
     norm_x = raw_sx - np.mean(raw_sx)
     norm_y = raw_sy - np.mean(raw_sy)
 
     # 3. Calcular PSD (FFT)
     fs = 20000 # Hz (Frecuencia de muestreo típica)
     f_x, Pxx = calcular_psd_fft(norm_x, fs)
+    # I assume pxx and pyy are just the power spectral densities in the
+    # x and y axis. 
     f_y, Pyy = calcular_psd_fft(norm_y, fs)
 
-    # 4. Ajuste Lorentziano (Fitting)
-    # Bloqueamos frecuencias muy altas (>8000 Hz) que suelen ser puro ruido electrónico
-    # Bloqueamos frecuencias muy bajas (<2 Hz) que suelen ser drift del láser
+    # 4. Lorentzian adjustment (Fitting)
+    # We block the very high frequencies, which normally are just 
+    # pure noise
+    # We also block the frequencies that are very low, which are 
+    # normally a minor drift of the laser. 
     mask_fit = (f_x > 2) & (f_x < 8000)
     
-    # Adivinanza inicial (p0):
-    # fc = 50 Hz (Un valor intermedio seguro)
-    # D = Promedio de la meseta de baja frecuencia
+    # Initial guess (p0):
+    # A corner frequency of 50 Hz is usually a middle, conservative
+    # number 
+    # D = Mean of the plateau (meseta) at low frequency
+    # Why is the plateau important? On the knee of the frequencies
+    # I do see how it remains fairly stable up until it drops down. 
+    # I suppose we do this to know where the drop occurs numerically. 
     p0_x = [50, np.mean(Pxx[(f_x > 2) & (f_x < 10)])]
     p0_y = [50, np.mean(Pyy[(f_y > 2) & (f_y < 10)])]
     
     try:
-        # Ajustamos LOG(PSD) para dar igual peso a la rodilla que a la cola
-        # Esto ayuda MUCHÍSIMO a ver la rodilla.
+        # We adjust Log(PSD) to give equal weight the knee and the tail. 
+        # This helps a lot to see the knee. 
         popt_x, _ = curve_fit(lambda f, fc, D: np.log(lorentzian(f, fc, D)), 
                               f_x[mask_fit], np.log(Pxx[mask_fit]), p0=p0_x)
         
