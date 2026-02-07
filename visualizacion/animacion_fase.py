@@ -131,30 +131,89 @@ def animar_espacio_fase():
     # also assume that linspace represents a line. 
     v_theory = (slope * (x_theory * 1e-6)) # m/s
     # This is the same formula that it is written in the graph 
-    # (v=(-kx)/gamma). I don't know how the 
+    # (v=(-kx)/gamma). As there is a graph of x and velocity I imagine
+    # this is indeed just the behavior on one dimension, as I would need 4
+    # dimensions in order to see both axis and the speed on each of them. 
+    # If I assume that the speed is the same in both axis then I would reduce
+    # it to 3, but the graph would probably be very boring. 
     
     ax.plot(x_theory, v_theory, color='cyan', linestyle='--', alpha=0.5, lw=2, 
             label='Deriva Determinista ($v = -kx/\gamma$)')
+    # This line seems to be just the label that appears on the upper-right
+    # corner. The 'label' attribute makes me think that. 
 
-    trail_len = 100
+    trail_len = 50
+    # I can modify this directly in order to see a longer or shorter path
+    # to which the bead moves. 
     scatter = ax.scatter([], [], s=60, c='magenta', edgecolors='white', zorder=10, 
                          label='Estado $(x, v)$')
-    trail, = ax.plot([], [], color='magenta', alpha=0.3, lw=1)
+    # This function is interesting, because it seems to also be part of the 
+    # labels that are in the upper-right corner, but its name is different. 
+    # Instead of .plot() it uses .scatter(). I would like to know what both
+    # of these mean and why I am passing two empty lists as arguments. 
+    # As the 'edgecolors' attribute is white, this makes me think this 
+    # describes the border of the bead, but it is interesting that it seems
+    # that in one instruction I managed to do two things: movement and a label.
+    trail, = ax.plot([], [], color='magenta', alpha=1, lw=1)
+    # The variable name is very explicit, this is the trail. 'alpha' seems to
+    # describe the saturation of the color 'magenta' as when I increased it 
+    # from 0.3 to 0.7 I see a brighter color. When I tried 1.3 to see if I 
+    # could get something very bright the code broke. 
+    # ValueError: alpha (1.3) is outside 0-1 range. I assume that if I put it
+    # on 1 I will get full saturation and if I put it in a 0, I will not 
+    # see the trail (and maybe not even the bead) at all. Indeed I didn't
+    # see anything with 0, but the bead stayed though. I haven't noticed but
+    # there is a comma after trail that doesn't break the code. It this a way
+    # to ignore a return from which I don't care losing its value? 
+    # When I removed it I see 
+    # AttributeError: 'FuncAnimation' object has no attribute '_resize_id'
+    # It is important, but I would like to know why. 
     
     ax.legend(loc='upper right', facecolor='#333', edgecolor='white', labelcolor='white')
+    # This seems to just be the border that contains the labels. What is 
+    # interesting is that if I comment the line, all the square dissapears,
+    # even the text that was inserted before (the formula of velocity and
+    # the state (x,v)). 
 
     def update(frame):
-        i = frame * 10 
+        i = frame 
+        # I suppose it goes from spaces of 10 to 10 to not have the animation
+        # last longer. When I removed the 10 the animation turned out to be 
+        # much "sharper", as while the bead seemed to move on longer steps
+        # the trail had a lot of rough corners. All the animations of matplotlib
+        # seem to have that characteristic of sharp corners though. 
         if i >= len(x_um): return scatter, trail
+        # What I wonder about this line is how it can work without a for loop.
+        # My intuition says that update() is being called inside a loop, and that
+        # is the reason why we can do without one here. 
         
         scatter.set_offsets([[x_um[i], v_x[i]]])
+        # I wonder what the set_offsets() method does. At least in the 
+        # argument it seems that we are just selecting each stored value of
+        # positions and velocities in the 'x_um' and 'v_x' lists with an index. 
         
         start = max(0, i - trail_len)
+        # I think I understand this logic: we check how many steps are left
+        # (as i increases each time update() is called) and then we subtract
+        # that from the total steps that need to be rendered... but that is
+        # not what 'trail_len' is; 'trail_len' is just how large the path
+        # of the bead is being rendered... then why do we need it?  
+
         trail.set_data(x_um[start:i], v_x[start:i])
+        # I would like to know what set_data does too. 
         return scatter, trail
+        # I wonder why we need these two different paths to arrive at 
+        # return scatter, trail. I don't think the if statement above is to
+        # have a different behavior, it might be just to avoid the calculations
+        # that are below. One reason for doing so might be that we don't want
+        # to display the trail unless it is necessary; that is when we have 
+        # surpassed the need length of the trail. 
 
     ani = animation.FuncAnimation(fig, update, frames=len(x_um)//10, interval=20, blit=True)
+    # There doesn't seem to be a reason why we store the animation in a 
+    # variable. I wonder what blit means. What seems interesting is that 
     plt.show()
+
 
 if __name__ == "__main__":
     animar_espacio_fase()
