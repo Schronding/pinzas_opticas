@@ -1,9 +1,3 @@
-"""
-Animación de la Función de Transferencia (PSD).
-Muestra cómo el ruido térmico converge a la curva Lorentziana teórica
-conforme pasa el tiempo.
-"""
-
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation

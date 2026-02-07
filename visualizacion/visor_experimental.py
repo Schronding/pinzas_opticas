@@ -49,7 +49,8 @@ class ExperimentalViewer(ttk.Frame):
         
         # Llamamos a la función principal del script de cálculo
         # Esta función carga los archivos, calcula el PSD y guarda la imagen
-        resultado = procesador.procesar_y_guardar()
+        # CORRECTED: The function in procesamiento_experimental.py is named 'process_and_save'
+        resultado = procesador.process_and_save()
         
         if 'error' in resultado:
             messagebox.showerror("Error de Datos", 
